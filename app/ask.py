@@ -14,6 +14,7 @@ import argparse
 
 from google import genai
 from google.genai import errors
+from google.genai import types
 
 from app.config import MODEL, api_error_message, get_api_key
 
@@ -21,9 +22,9 @@ from app.config import MODEL, api_error_message, get_api_key
 DEFAULT_QUESTION = "AIE2026の講座の宿題にある「3レベル」とは何ですか？"
 
 
-def ask(question: str) -> str:
+def ask(contents: str | list[types.Content]) -> str:
     client = genai.Client(api_key=get_api_key())
-    response = client.models.generate_content(model=MODEL, contents=question)
+    response = client.models.generate_content(model=MODEL, contents=contents)
 
     # TODO(第1回 演習): response.usage_metadata から
     #   入力トークン数と出力トークン数を表示してみよう（Copilotに頼んでよい）
@@ -37,12 +38,39 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"[model] {MODEL}")
-    print(f"[質問] {args.question}\n")
-    try:
-        print(ask(args.question))
-    except errors.APIError as e:
-        print(api_error_message(e.code, e.message))
-        raise SystemExit(1)
+    history: list[types.Content] = []
+    question = args.question
+
+    while True:
+        if question is None:
+            try:
+                question = input("質問を入力してください: ").strip()
+            except EOFError:
+                print()
+                break
+        else:
+            question = question.strip()
+
+        if question.lower() in {"exit", "quit"}:
+            break
+        if not question:
+            print("質問を入力してください。")
+            question = None
+            continue
+
+        # 成功したターンを user / model の順で会話履歴に追加する。
+        history.append(types.Content(role="user", parts=[types.Part.from_text(text=question)]))
+        print(f"[質問] {question}\n")
+        try:
+            answer = ask(history)
+        except errors.APIError as e:
+            print(api_error_message(e.code, e.message))
+            history.pop()
+        else:
+            print(answer)
+            history.append(types.Content(role="model", parts=[types.Part.from_text(text=answer)]))
+
+        question = None
 
 
 if __name__ == "__main__":
